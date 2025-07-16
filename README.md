@@ -90,7 +90,7 @@ const CONFIG = {
 ```
 Note: If you wish to not have your cache expire simply set 
 ```js
-  CACHE_EXPIRY: INFINITY
+  CACHE_EXPIRY: Infinity,
 ```
 
 
