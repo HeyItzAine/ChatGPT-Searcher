@@ -1,5 +1,5 @@
 # ChatGPT Chat Searcher 🔍  
-**Supercharge your ChatGPT experience with instant, private, local search.**
+**ChatGPT experience with instant, private, local search.**
 
 Userscript that adds advanced search to your ChatGPT Web. Instantly find any conversation and or message without sending data to any external server. Everything is stored 100% locally in your browser.
 
