@@ -9,17 +9,6 @@
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
-// ==UserScript==
-// @name         ChatGPT Search Tool
-// @namespace    https://github.com/HeyItzAine/ChatGPT-Searcher
-// @version      1
-// @description  Advanced search for ChatGPT with chat content caching, and local storage
-// @author       HeyItzAine https://discord.com/users/458981292332285953
-// @match        https://chatgpt.com/*
-// @match        https://chat.openai.com/*
-// @grant        none
-// @run-at       document-idle
-// ==/UserScript==
 
 (function() {
     'use strict';
