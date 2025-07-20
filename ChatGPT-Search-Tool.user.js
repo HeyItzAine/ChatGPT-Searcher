@@ -9,6 +9,17 @@
 // @grant        none
 // @run-at       document-idle
 // ==/UserScript==
+// ==UserScript==
+// @name         ChatGPT Search Tool
+// @namespace    https://github.com/HeyItzAine/ChatGPT-Searcher
+// @version      1
+// @description  Advanced search for ChatGPT with chat content caching, and local storage
+// @author       HeyItzAine https://discord.com/users/458981292332285953
+// @match        https://chatgpt.com/*
+// @match        https://chat.openai.com/*
+// @grant        none
+// @run-at       document-idle
+// ==/UserScript==
 
 (function() {
     'use strict';
@@ -411,6 +422,12 @@
                 to { transform: rotate(360deg); }
             }
 
+            @keyframes pulse {
+                0% { opacity: 1; transform: scale(1); }
+                50% { opacity: 0.8; transform: scale(1.2); }
+                100% { opacity: 1; transform: scale(1); }
+            }
+
             /* Progress Bar */
             .progress-bar {
                 width: 100%;
@@ -607,9 +624,39 @@
             }
         }
 
-        async extractAllChats(onProgress) {
-            const chatData = {};
+        async extractChatMessages(chatId, href) {
+            try {
+                // Save current URL
+                const currentUrl = window.location.href;
+
+                // Navigate to the chat
+                window.location.href = href;
+
+                // Wait for chat to load
+                await new Promise(resolve => setTimeout(resolve, 2000));
+
+                // Wait for messages to appear
+                let attempts = 0;
+                while (attempts < 10) {
+                    const messages = await this.extractCurrentChatContent();
+                    if (messages.length > 0) {
+                        return messages;
+                    }
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    attempts++;
+                }
+
+                return [];
+            } catch (error) {
+                console.error(`Error extracting messages for chat ${chatId}:`, error);
+                return [];
+            }
+        }
+
+        async extractAllChats(onProgress, existingCache = {}, updateOnly = false) {
+            const chatData = updateOnly ? { ...existingCache } : {};
             let processed = 0;
+            let newChatsFound = 0;
 
             try {
                 // Get all chat links from the sidebar
@@ -618,46 +665,95 @@
 
                 console.log(`Found ${totalChats} chats to process`);
 
+                // Create a list of chats to process
+                const chatsToProcess = [];
+
                 for (const link of chatLinks) {
+                    const href = link.getAttribute('href');
+                    if (!href || !href.includes('/c/')) continue;
+
+                    const chatId = href.split('/c/')[1]?.split('?')[0];
+                    if (!chatId) continue;
+
+                    // Skip if update only and chat already exists
+                    if (updateOnly && existingCache[chatId]) {
+                        processed++;
+                        continue;
+                    }
+
+                    // Get chat title
+                    const titleElement = link.querySelector('div:not([class*="absolute"]):not([class*="relative"])') ||
+                                       link.querySelector('.overflow-hidden') ||
+                                       link.querySelector('.truncate');
+                    const title = titleElement ? titleElement.textContent.trim() : `Chat ${processed + 1}`;
+
+                    chatsToProcess.push({ chatId, href, title });
+                }
+
+                newChatsFound = chatsToProcess.length;
+
+                if (updateOnly && newChatsFound === 0) {
+                    console.log('No new chats found to update');
+                    return { chatData, newChatsFound: 0 };
+                }
+
+                // Process each chat
+                for (const chat of chatsToProcess) {
                     try {
-                        const href = link.getAttribute('href');
-                        if (!href || !href.includes('/c/')) continue;
-
-                        const chatId = href.split('/c/')[1]?.split('?')[0];
-                        if (!chatId) continue;
-
-                        // Get chat title
-                        const titleElement = link.querySelector('div:not([class*="absolute"]):not([class*="relative"])') ||
-                                           link.querySelector('.overflow-hidden') ||
-                                           link.querySelector('.truncate');
-                        const title = titleElement ? titleElement.textContent.trim() : `Chat ${processed + 1}`;
-
-                        // For now, we'll store basic info and extract full content when visiting
-                        chatData[chatId] = {
-                            id: chatId,
-                            title: title,
-                            href: href,
-                            messages: [], // Will be populated when actually visiting the chat
+                        // Note: We store basic info here. Full message content is extracted when:
+                        // 1. User visits the chat
+                        // 2. The periodic updater runs while user is in a chat
+                        // This approach avoids disruptive page navigation
+                        chatData[chat.chatId] = {
+                            id: chat.chatId,
+                            title: chat.title,
+                            href: chat.href,
+                            messages: [],
                             lastUpdated: Date.now()
                         };
 
                         processed++;
                         if (onProgress) {
-                            onProgress(processed, totalChats);
+                            const progressText = updateOnly
+                                ? `Adding ${processed}/${newChatsFound} new chats...`
+                                : `Indexing ${processed}/${totalChats} chats...`;
+                            onProgress(processed, updateOnly ? newChatsFound : totalChats, progressText);
                         }
 
                         // Small delay to avoid overwhelming
-                        await new Promise(resolve => setTimeout(resolve, 50));
+                        await new Promise(resolve => setTimeout(resolve, 10));
                     } catch (err) {
-                        console.error('Error processing chat link:', err);
+                        console.error('Error processing chat:', err);
                     }
                 }
 
-                console.log(`Processed ${processed} chats`);
-                return chatData;
+                console.log(`Processed ${processed} chats, found ${newChatsFound} new chats`);
+                return { chatData, newChatsFound };
             } catch (error) {
                 console.error('Error in extractAllChats:', error);
-                return chatData;
+                return { chatData, newChatsFound };
+            }
+        }
+
+        async extractMessagesForChat(chatId, chatData) {
+            try {
+                const currentPath = window.location.pathname;
+
+                // If we're already on this chat, extract messages directly
+                if (currentPath.includes(`/c/${chatId}`)) {
+                    const messages = await this.extractCurrentChatContent();
+                    if (messages.length > 0) {
+                        chatData[chatId].messages = messages;
+                        chatData[chatId].lastUpdated = Date.now();
+                    }
+                    return chatData[chatId];
+                }
+
+                // Otherwise, we'd need to navigate (future enhancement)
+                return chatData[chatId];
+            } catch (error) {
+                console.error(`Error extracting messages for chat ${chatId}:`, error);
+                return chatData[chatId];
             }
         }
     }
@@ -871,14 +967,28 @@
                     <input type="text" id="chatgpt-search-input" placeholder="Search conversations by title or content..." />
 
                     <div class="search-controls">
-                        <button class="search-btn" id="rebuild-cache-btn">
+                        <button class="search-btn" id="update-cache-btn" title="Add only new chats to the cache">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 2v4"/>
+                                <path d="M12 18v4"/>
+                                <path d="M4.93 4.93l2.83 2.83"/>
+                                <path d="M16.24 16.24l2.83 2.83"/>
+                                <path d="M2 12h4"/>
+                                <path d="M18 12h4"/>
+                                <path d="M4.93 19.07l2.83-2.83"/>
+                                <path d="M16.24 7.76l2.83-2.83"/>
+                            </svg>
+                            Update Cache
+                        </button>
+
+                        <button class="search-btn secondary" id="rebuild-cache-btn" title="Rebuild the entire cache from scratch">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M21 12c0 4.97-4.03 9-9 9-2.49 0-4.74-1.01-6.36-2.64"/>
                                 <path d="M3 12c0-4.97 4.03-9 9-9 2.49 0 4.74 1.01 6.36 2.64"/>
                                 <path d="M21 8l-4 4-4-4"/>
                                 <path d="M3 16l4-4 4 4"/>
                             </svg>
-                            Build Cache
+                            Rebuild All
                         </button>
 
                         <button class="search-btn secondary" id="clear-cache-btn">
@@ -916,6 +1026,9 @@
                 <div id="chatgpt-search-results">
                     <div class="search-stats" id="chatgpt-search-stats"></div>
                     <div id="search-results-content"></div>
+                    <div style="padding: 10px; margin-top: 20px; border-top: 1px solid #3d3d3d; color: #666; font-size: 12px; text-align: center;">
+                        💡 Tip: Message content is indexed when you visit each chat. Titles are indexed immediately.
+                    </div>
                 </div>
             </div>
         `;
@@ -955,7 +1068,8 @@
             results: document.getElementById('search-results-content'),
             stats: document.getElementById('chatgpt-search-stats'),
             close: document.getElementById('chatgpt-search-close'),
-            buildCache: document.getElementById('rebuild-cache-btn'),
+            updateCache: document.getElementById('update-cache-btn'),
+            rebuildCache: document.getElementById('rebuild-cache-btn'),
             clearCache: document.getElementById('clear-cache-btn'),
             clearRecent: document.getElementById('clear-recent-btn'),
             cacheStatus: document.getElementById('cache-status'),
@@ -1036,41 +1150,76 @@
 
             elements.stats.textContent = `Found ${results.length} conversation${results.length !== 1 ? 's' : ''}`;
 
-            elements.results.innerHTML = results.map(result => `
-                <div class="search-result-item" data-href="${result.href}">
-                    <div class="search-result-title">${result.highlightedTitle}</div>
-                    ${result.contentMatches.slice(0, 2).map(match => `
-                        <div class="search-result-preview" data-message-index="${match.messageIndex}">
-                            ${match.preview}
+            elements.results.innerHTML = results.map(result => {
+                const hasMessages = result.messages && result.messages.length > 0;
+                const messageStatus = hasMessages
+                    ? `<span style="color: #10a37f; font-size: 11px;">✓ Content indexed</span>`
+                    : `<span style="color: #666; font-size: 11px;">Title only (visit chat to index content)</span>`;
+
+                return `
+                    <div class="search-result-item" data-href="${result.href}">
+                        <div class="search-result-title">${result.highlightedTitle}</div>
+                        ${result.contentMatches.slice(0, 2).map(match => `
+                            <div class="search-result-preview" data-message-index="${match.messageIndex}">
+                                ${match.preview}
+                            </div>
+                        `).join('')}
+                        <div class="search-result-meta">
+                            <span>${result.totalMatches} match${result.totalMatches !== 1 ? 'es' : ''} • ${messageStatus}</span>
+                            <span>Updated ${formatTimestamp(result.lastUpdated)}</span>
                         </div>
-                    `).join('')}
-                    <div class="search-result-meta">
-                        <span>${result.totalMatches} match${result.totalMatches !== 1 ? 'es' : ''}</span>
-                        <span>Updated ${formatTimestamp(result.lastUpdated)}</span>
                     </div>
-                </div>
-            `).join('');
+                `;
+            }).join('');
         }
 
         // Build cache
-        async function buildCache() {
-            elements.buildCache.disabled = true;
+        async function buildCache(updateOnly = false) {
+            const button = updateOnly ? elements.updateCache : elements.rebuildCache;
+            const originalText = button.innerHTML;
+
+            button.disabled = true;
             elements.cacheStatus.className = 'cache-status building';
-            elements.buildCache.innerHTML = `
+            button.innerHTML = `
                 <span class="search-spinner"></span>
-                Building cache...
+                ${updateOnly ? 'Updating...' : 'Building cache...'}
             `;
 
             try {
-                const chatData = await chatExtractor.extractAllChats((current, total) => {
-                    elements.buildCache.innerHTML = `
+                const existingCache = updateOnly ? cacheManager.getChatData() : {};
+                const result = await chatExtractor.extractAllChats((current, total, progressText) => {
+                    button.innerHTML = `
                         <span class="search-spinner"></span>
-                        Processing ${current}/${total}...
+                        ${progressText || `Processing ${current}/${total}...`}
                     `;
-                });
+                }, existingCache, updateOnly);
 
-                cacheManager.setCache(chatData);
-                updateCacheStatus();
+                if (updateOnly && result.newChatsFound === 0) {
+                    button.innerHTML = `
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M20 6L9 17l-5-5"/>
+                        </svg>
+                        No new chats
+                    `;
+                    setTimeout(() => {
+                        button.innerHTML = originalText;
+                    }, 2000);
+                } else {
+                    cacheManager.setCache(result.chatData);
+                    updateCacheStatus();
+
+                    // Success feedback
+                    button.innerHTML = `
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M20 6L9 17l-5-5"/>
+                        </svg>
+                        ${updateOnly ? `Added ${result.newChatsFound} chats` : 'Cache built!'}
+                    `;
+
+                    setTimeout(() => {
+                        button.innerHTML = originalText;
+                    }, 2000);
+                }
 
                 // If search input has value, perform search
                 if (elements.input.value) {
@@ -1078,17 +1227,19 @@
                 }
             } catch (error) {
                 console.error('Error building cache:', error);
-            } finally {
-                elements.buildCache.disabled = false;
-                elements.buildCache.innerHTML = `
+                button.innerHTML = `
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                        <path d="M21 12c0 4.97-4.03 9-9 9-2.49 0-4.74-1.01-6.36-2.64"/>
-                        <path d="M3 12c0-4.97 4.03-9 9-9 2.49 0 4.74 1.01 6.36 2.64"/>
-                        <path d="M21 8l-4 4-4-4"/>
-                        <path d="M3 16l4-4 4 4"/>
+                        <path d="M18 6L6 18"/>
+                        <path d="M6 6l12 12"/>
                     </svg>
-                    Build Cache
+                    Error
                 `;
+                setTimeout(() => {
+                    button.innerHTML = originalText;
+                }, 2000);
+            } finally {
+                button.disabled = false;
+                updateCacheStatus();
             }
         }
 
@@ -1120,7 +1271,8 @@
             }, CONFIG.SEARCH_DEBOUNCE);
         });
 
-        elements.buildCache.addEventListener('click', buildCache);
+        elements.updateCache.addEventListener('click', () => buildCache(true));
+        elements.rebuildCache.addEventListener('click', () => buildCache(false));
 
         elements.clearCache.addEventListener('click', () => {
             cacheManager.clearCache();
@@ -1206,12 +1358,68 @@
                     const messages = await chatExtractor.extractCurrentChatContent();
                     if (messages.length > 0) {
                         const chatData = cacheManager.getChatData();
-                        if (chatData[chatId]) {
+
+                        // If this chat isn't in cache yet, add it
+                        if (!chatData[chatId]) {
+                            // Find the chat link to get the title
+                            const chatLink = document.querySelector(`nav a[href*="/c/${chatId}"]`);
+                            const titleElement = chatLink?.querySelector('div:not([class*="absolute"]):not([class*="relative"])');
+                            const title = titleElement ? titleElement.textContent.trim() : 'Current Chat';
+
+                            chatData[chatId] = {
+                                id: chatId,
+                                title: title,
+                                href: `/c/${chatId}`,
+                                messages: messages,
+                                lastUpdated: Date.now()
+                            };
+
+                            console.log(`Added new chat ${chatId} to cache`);
+                        } else {
+                            // Update existing chat
                             chatData[chatId].messages = messages;
                             chatData[chatId].lastUpdated = Date.now();
-                            cacheManager.updateChatInCache(chatId, chatData[chatId]);
                         }
+
+                        cacheManager.updateChatInCache(chatId, chatData[chatId]);
+                        updateCacheStatus();
                     }
+                }
+            }
+
+            // Also check for new chats in the sidebar
+            const chatLinks = document.querySelectorAll('nav a[href^="/c/"], nav li a[href*="/c/"]');
+            const currentCache = cacheManager.getChatData();
+            let newChatsFound = false;
+
+            chatLinks.forEach(link => {
+                const href = link.getAttribute('href');
+                if (href && href.includes('/c/')) {
+                    const chatId = href.split('/c/')[1]?.split('?')[0];
+                    if (chatId && !currentCache[chatId]) {
+                        newChatsFound = true;
+                    }
+                }
+            });
+
+            // Update the Update Cache button to show indicator if new chats are found
+            if (newChatsFound && elements.updateCache) {
+                elements.updateCache.style.position = 'relative';
+                const existingIndicator = elements.updateCache.querySelector('.new-chat-indicator');
+                if (!existingIndicator) {
+                    const indicator = document.createElement('span');
+                    indicator.className = 'new-chat-indicator';
+                    indicator.style.cssText = `
+                        position: absolute;
+                        top: -4px;
+                        right: -4px;
+                        width: 8px;
+                        height: 8px;
+                        background: #10a37f;
+                        border-radius: 50%;
+                        animation: pulse 2s infinite;
+                    `;
+                    elements.updateCache.appendChild(indicator);
                 }
             }
         }, 30000); // Update every 30 seconds
@@ -1219,7 +1427,7 @@
         // Initial cache check
         if (cacheManager.isCacheEmpty() || cacheManager.isExpired()) {
             console.log('Cache is empty or expired, building initial cache...');
-            buildCache();
+            setTimeout(() => buildCache(false), 1000);
         }
     }
 
