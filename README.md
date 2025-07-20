@@ -5,6 +5,12 @@ Userscript that adds advanced search to your ChatGPT Web. Instantly find any con
 
 ---
 
+Pictures:
+<img width="915" height="421" alt="Image" src="https://github.com/user-attachments/assets/dc03973c-821c-4b61-ba34-e057104e4a8c" />
+<img width="922" height="422" alt="Image" src="https://github.com/user-attachments/assets/7f85ab8d-cd6b-4e5e-adda-3671b0aedac5" />
+
+---
+
 ## 🌟  Features
 
 - ⚡ **Instant Search**: Quickly find messages or titles in your entire chat history.  
