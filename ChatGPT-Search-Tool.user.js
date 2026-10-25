@@ -60,6 +60,19 @@
         }
     };
 
+    function escapeHtml(value) {
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    }
+
+    function escapeAttribute(value) {
+        return escapeHtml(value).replace(/`/g, '&#96;');
+    }
+
     // Add comprehensive styles
     function addStyles() {
         const style = document.createElement('style');
@@ -813,10 +826,12 @@
         }
 
         highlightText(text, searchTerm) {
-            if (!searchTerm) return text;
+            const safeText = escapeHtml(text);
+            if (!searchTerm) return safeText;
 
-            const regex = new RegExp(`(${searchTerm.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi');
-            return text.replace(regex, '<span class="search-highlight">$1</span>');
+            const safeSearchTerm = escapeHtml(searchTerm).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(`(${safeSearchTerm})`, 'gi');
+            return safeText.replace(regex, '<span class="search-highlight">$1</span>');
         }
     }
 
@@ -1099,8 +1114,8 @@
 
             elements.recentSearchesContainer.style.display = 'block';
             elements.recentList.innerHTML = searches.map(item => `
-                <span class="recent-search-item" data-query="${item.query}">
-                    ${item.query}
+                <span class="recent-search-item" data-query="${escapeAttribute(item.query)}">
+                    ${escapeHtml(item.query)}
                 </span>
             `).join('');
         }
@@ -1130,7 +1145,7 @@
             if (results.length === 0) {
                 elements.results.innerHTML = `
                     <div class="search-empty">
-                        No results found for "${query}"
+                        No results found for "${escapeHtml(query)}"
                     </div>
                 `;
                 elements.stats.textContent = 'No results found';
@@ -1146,7 +1161,7 @@
                     : `<span style="color: #666; font-size: 11px;">Title only (visit chat to index content)</span>`;
 
                 return `
-                    <div class="search-result-item" data-href="${result.href}">
+                    <div class="search-result-item" data-href="${escapeAttribute(result.href)}">
                         <div class="search-result-title">${result.highlightedTitle}</div>
                         ${result.contentMatches.slice(0, 2).map(match => `
                             <div class="search-result-preview" data-message-index="${match.messageIndex}">
